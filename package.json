@@ -26,9 +26,14 @@
     "mcp-server",
     "blockchain",
     "liteserver",
+    "archive-node",
     "toncoin",
     "ai-agents",
-    "claude"
+    "claude",
+    "chatgpt",
+    "cursor",
+    "codex",
+    "gemini"
   ],
   "author": "TONNode <support@tonnode.io> (https://tonnode.io)",
   "license": "MIT",
