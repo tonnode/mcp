@@ -1,7 +1,6 @@
-#!/usr/bin/env node
 // Hosted mode: the same TON MCP server over Streamable HTTP.
 //
-//   PORT=8808 TONNODE_KEYS=tn_live_abc,tn_live_def tonnode-mcp-http
+//   PORT=8808 TONNODE_KEYS=tn_live_abc,tn_live_def npx -y @tonnode/mcp --http
 //
 // Clients connect with:
 //   { "mcpServers": { "ton": { "url": "https://mcp.tonnode.io/mcp",
@@ -89,7 +88,8 @@ async function newSession(): Promise<StreamableHTTPServerTransport> {
 
 // ---------- http server ----------
 
-const httpServer = createHttpServer(async (req, res) => {
+export function startHttp(): void {
+  const httpServer = createHttpServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
 
@@ -125,13 +125,14 @@ const httpServer = createHttpServer(async (req, res) => {
     }
 
     return reply(res, 405, { error: "method not allowed" });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (!res.headersSent) reply(res, 500, { error: message });
-  }
-});
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!res.headersSent) reply(res, 500, { error: message });
+    }
+  });
 
-httpServer.listen(PORT, () => {
-  const mode = KEYS.size > 0 ? `${KEYS.size} API key(s)` : "open access (no TONNODE_KEYS set)";
-  console.error(`tonnode-mcp http listening on :${PORT} — ${mode}, ${RATE_LIMIT_RPM} req/min per key`);
-});
+  httpServer.listen(PORT, () => {
+    const mode = KEYS.size > 0 ? `${KEYS.size} API key(s)` : "open access (no TONNODE_KEYS set)";
+    console.error(`tonnode-mcp http listening on :${PORT} — ${mode}, ${RATE_LIMIT_RPM} req/min per key`);
+  });
+}

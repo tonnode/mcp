@@ -36,7 +36,7 @@ That's the whole integration. The server connects to TON mainnet via the public 
 The package also ships a Streamable-HTTP entry for remote deployments (this is what powers `mcp.tonnode.io`):
 
 ```bash
-TONNODE_KEYS=tn_live_abc,tn_live_def PORT=8808 npx -y -p @tonnode/mcp tonnode-mcp-http
+TONNODE_KEYS=tn_live_abc,tn_live_def PORT=8808 npx -y @tonnode/mcp --http
 ```
 
 Clients then connect without installing anything:
