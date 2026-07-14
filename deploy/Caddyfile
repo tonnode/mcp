@@ -1,0 +1,13 @@
+# Caddy reverse proxy for the hosted TONNode MCP server.
+# Caddy provisions and renews the TLS certificate automatically.
+#
+# Install (Ubuntu): https://caddyserver.com/docs/install#debian-ubuntu-raspbian
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile   (or merge into an existing one)
+#   sudo systemctl reload caddy
+
+mcp.tonnode.io {
+	# MCP uses SSE streams — disable response buffering.
+	reverse_proxy 127.0.0.1:8808 {
+		flush_interval -1
+	}
+}

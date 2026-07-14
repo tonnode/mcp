@@ -59,7 +59,11 @@ export function getClient(): Promise<LiteClient> {
         })
     );
     return new LiteClient({ engine: new LiteRoundRobinEngine(engines) });
-  })();
+  })().catch((err) => {
+    // don't cache a failed init (e.g. transient config-fetch error) forever
+    clientPromise = null;
+    throw err;
+  });
   return clientPromise;
 }
 
