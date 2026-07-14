@@ -6,7 +6,7 @@ Built by [TONNode](https://tonnode.io) — private TON liteservers, archive node
 
 ## Quick start
 
-Add to Claude Desktop, Claude Code, Cursor or any MCP client:
+Add to Claude Desktop, Claude Code, ChatGPT, Cursor, Codex or any MCP client:
 
 ```json
 {
