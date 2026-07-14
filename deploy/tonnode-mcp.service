@@ -1,0 +1,36 @@
+# systemd unit for the hosted TONNode MCP server (Streamable HTTP mode).
+#
+# Install:
+#   sudo npm install -g @tonnode/mcp
+#   sudo cp deploy/tonnode-mcp.service /etc/systemd/system/
+#   sudo cp deploy/tonnode-mcp.env /etc/tonnode-mcp.env && sudo chmod 600 /etc/tonnode-mcp.env
+#   sudo systemctl daemon-reload && sudo systemctl enable --now tonnode-mcp
+#
+# Check: curl -s http://127.0.0.1:8808/healthz
+
+[Unit]
+Description=TONNode MCP server (Streamable HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/tonnode-mcp.env
+ExecStart=/usr/bin/env tonnode-mcp --http
+Restart=always
+RestartSec=3
+
+# Run unprivileged and sandboxed — this box also runs a TON node.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+MemoryMax=512M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
