@@ -1,0 +1,25 @@
+# Smithery configuration — https://smithery.ai
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      tonLiteservers:
+        type: string
+        description: >-
+          Optional JSON array of private liteserver entries, e.g.
+          [{"ip":"host","port":41000,"key":"<base64 ed25519>"}].
+          Defaults to the public TON global config.
+      tonNetwork:
+        type: string
+        enum: [mainnet, testnet]
+        description: TON network to use (default mainnet).
+  commandFunction: |-
+    (config) => ({
+      command: 'npx',
+      args: ['-y', '@tonnode/mcp'],
+      env: {
+        ...(config.tonLiteservers ? { TON_LITESERVERS: config.tonLiteservers } : {}),
+        ...(config.tonNetwork === 'testnet' ? { TON_NETWORK: 'testnet' } : {})
+      }
+    })
