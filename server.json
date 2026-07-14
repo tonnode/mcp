@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.tonnode/mcp",
+  "title": "TONNode — TON blockchain access",
+  "description": "Direct liteserver access to The Open Network (TON) over native ADNL: balances, account state, transaction history and contract get-methods.",
+  "repository": {
+    "url": "https://github.com/tonnode/mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://tonnode.io/mcp",
+  "version": "0.1.3",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@tonnode/mcp",
+      "version": "0.1.3",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TON_LITESERVERS",
+          "description": "Optional JSON array of private liteserver entries: [{\"ip\":\"host\",\"port\":41000,\"key\":\"<base64 ed25519>\"}]. Defaults to the public global config.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "TON_NETWORK",
+          "description": "Set to \"testnet\" to use the testnet global config.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
