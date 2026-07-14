@@ -2,7 +2,7 @@
   "name": "@tonnode/mcp",
   "mcpName": "io.github.tonnode/mcp",
   "version": "0.1.3",
-  "description": "MCP server that gives AI agents direct liteserver access to The Open Network (TON): balances, account state, transactions and contract get-methods.",
+  "description": "Liteserver access to TON: balances, account state, transactions and get-methods over native ADNL.",
   "type": "module",
   "bin": {
     "tonnode-mcp": "dist/index.js"
