@@ -74,7 +74,7 @@ export function createTonServer(): McpServer {
 
   server.tool(
     "get_balance",
-    "TON balance of an address, in both TON and nanoTON.",
+    "Native GRAM balance of an address (GRAM is the renamed Toncoin), in both GRAM and nano units.",
     { address: addressArg },
     async ({ address }) => {
       try {
@@ -85,7 +85,7 @@ export function createTonServer(): McpServer {
         const nano = state.balance?.coins ?? 0n;
         return ok({
           address: addr.toString(),
-          balance_ton: fromNano(nano),
+          balance_gram: fromNano(nano),
           balance_nano: nano,
           at_seqno: master.last.seqno,
         });
@@ -110,7 +110,7 @@ export function createTonServer(): McpServer {
         return ok({
           address: addr.toString(),
           status,
-          balance_ton: fromNano(res.balance?.coins ?? 0n),
+          balance_gram: fromNano(res.balance?.coins ?? 0n),
           last_transaction: res.lastTx
             ? { lt: res.lastTx.lt, hash: res.lastTx.hash.toString(16) }
             : null,
@@ -158,10 +158,10 @@ export function createTonServer(): McpServer {
               hash: cell.hash().toString("hex"),
               lt: tx.lt,
               unix_time: tx.now,
-              in_value_ton: inInfo?.type === "internal" ? fromNano(inInfo.value.coins) : null,
+              in_value_gram: inInfo?.type === "internal" ? fromNano(inInfo.value.coins) : null,
               in_from: inInfo?.type === "internal" ? inInfo.src.toString() : null,
               out_messages: tx.outMessagesCount,
-              total_fees_ton: fromNano(tx.totalFees.coins),
+              total_fees_gram: fromNano(tx.totalFees.coins),
             };
           } catch {
             return { hash: cell.hash().toString("hex"), parse_error: true };

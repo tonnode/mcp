@@ -23,10 +23,12 @@ That's the whole integration. The server connects to TON mainnet via the public 
 
 ## Tools
 
+> **Naming note:** the native coin was renamed from Toncoin to **GRAM** in June 2026; the network itself is still called **TON**. Tool outputs use `*_gram` fields.
+
 | Tool | What it does |
 |---|---|
 | `get_masterchain_info` | Current masterchain head: seqno, shard, block hashes |
-| `get_balance` | TON balance of an address (TON + nanoTON) |
+| `get_balance` | GRAM balance of an address (GRAM + nano) |
 | `get_account_state` | Status (active/frozen/uninit), balance, last-tx pointer, code/data flags |
 | `get_transactions` | Recent transactions: lt, time, incoming value, fees |
 | `run_get_method` | Read-only get-methods on contracts (`seqno`, `get_wallet_address`, …) |

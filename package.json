@@ -1,6 +1,6 @@
 {
   "name": "@tonnode/mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MCP server that gives AI agents direct liteserver access to The Open Network (TON): balances, account state, transactions and contract get-methods.",
   "type": "module",
   "bin": {
@@ -27,6 +27,7 @@
     "liteserver",
     "archive-node",
     "toncoin",
+    "gram",
     "ai-agents",
     "claude",
     "chatgpt",
