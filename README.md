@@ -47,7 +47,7 @@ The package also ships a Streamable-HTTP entry for remote deployments (this is w
 TONNODE_KEYS=tn_live_abc,tn_live_def PORT=8808 npx -y @tonnode/mcp --http
 ```
 
-Clients then connect without installing anything:
+Want a ready-made hosted endpoint instead of running your own? Keys for `mcp.tonnode.io` are issued at [tonnode.io/mcp](https://tonnode.io/mcp). Clients connect without installing anything:
 
 ```json
 {

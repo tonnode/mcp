@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "ton": {
+      "type": "http",
       "url": "https://mcp.tonnode.io/mcp",
       "headers": {
         "Authorization": "Bearer tn_live_your_key"
