@@ -1,5 +1,7 @@
 # @tonnode/mcp
 
+[![mcp MCP server](https://glama.ai/mcp/servers/tonnode/mcp/badges/score.svg)](https://glama.ai/mcp/servers/tonnode/mcp)
+
 [Русская версия](README.ru.md)
 
 MCP server that gives AI agents direct **liteserver** access to [The Open Network (TON)](https://ton.org) — no HTTP gateways in the middle. Balances, account state, transaction history and contract get-methods over TON's native ADNL protocol.
