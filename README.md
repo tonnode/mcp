@@ -29,13 +29,15 @@ That's the whole integration. The server connects to TON mainnet via the public 
 
 > **Naming note:** the native coin was renamed from Toncoin to **GRAM** in June 2026; the network itself is still called **TON**. Tool outputs use `*_gram` fields.
 
-| Tool | What it does |
-|---|---|
-| `get_masterchain_info` | Current masterchain head: seqno, shard, block hashes |
-| `get_balance` | GRAM balance of an address (GRAM + nano) |
-| `get_account_state` | Status (active/frozen/uninit), balance, last-tx pointer, code/data flags |
-| `get_transactions` | Recent transactions: lt, time, incoming value, fees |
-| `run_get_method` | Read-only get-methods on contracts (`seqno`, `get_wallet_address`, …) |
+| Tool | What it does | Typical question |
+|---|---|---|
+| `get_balance` | GRAM balance of an address | *"How much GRAM does EQ… hold?"* |
+| `get_jetton_balance` | Jetton/token balance (USDT and any TEP-74 token) | *"How much USDT is on this wallet?"* |
+| `get_transactions` | Recent transactions: values, senders, fees | *"Did my payment arrive?"* |
+| `get_account_state` | Status, deployment flags, last-tx pointer | *"Is this contract deployed?"* |
+| `run_get_method` | Read-only get-methods on contracts | *"Call `get_jetton_data` on this master"* |
+| `parse_address` | Convert/validate EQ…/UQ…/raw forms, offline | *"Are these two addresses the same?"* |
+| `get_masterchain_info` | Masterchain head: seqno, shard, hashes | *"Is the network (or my endpoint) alive?"* |
 
 ## Hosted / self-hosted HTTP mode
 
@@ -58,7 +60,7 @@ Clients then connect without installing anything:
 }
 ```
 
-Requests are authenticated with Bearer keys and rate-limited per key (`RATE_LIMIT_RPM`, default 300). Keys come from either `TONNODE_KEYS` (comma-separated, fixed) or `TONNODE_KEYS_FILE` — a JSON array of `{"key", "label"?, "rpm"?, "expires"?}` that is **hot-reloaded** on change and on SIGHUP: add or revoke customer keys with no restart, per-key rate limits, and self-expiring keys for subscription plans. A revoked key's live sessions are closed immediately. `GLOBAL_RATE_LIMIT_RPM` adds a total ceiling across all keys to protect the backend liteserver. Sessions are private to the key that opened them, idle sessions are swept after `SESSION_TTL_MIN` (default 30 minutes), and concurrent sessions are capped per key and globally. Without keys the server refuses to start; set `TONNODE_ALLOW_OPEN=1` to explicitly run keyless behind your own firewall. `GET /healthz` for monitoring, [`deploy/tonnode-keys.sh`](deploy/tonnode-keys.sh) for key management.
+Requests are authenticated with Bearer keys and rate-limited per key (`RATE_LIMIT_RPM`, default 300). Besides `Authorization: Bearer <key>`, the server accepts a bare `Authorization: <key>` and `X-API-Key: <key>` — for gateways (e.g. Smithery) that reserve the `Authorization` header for themselves. Keys come from either `TONNODE_KEYS` (comma-separated, fixed) or `TONNODE_KEYS_FILE` — a JSON array of `{"key", "label"?, "rpm"?, "expires"?}` that is **hot-reloaded** on change and on SIGHUP: add or revoke customer keys with no restart, per-key rate limits, and self-expiring keys for subscription plans. A revoked key's live sessions are closed immediately. `GLOBAL_RATE_LIMIT_RPM` adds a total ceiling across all keys to protect the backend liteserver. Sessions are private to the key that opened them, idle sessions are swept after `SESSION_TTL_MIN` (default 30 minutes), and concurrent sessions are capped per key and globally. Without keys the server refuses to start; set `TONNODE_ALLOW_OPEN=1` to explicitly run keyless behind your own firewall. `GET /healthz` for monitoring, [`deploy/tonnode-keys.sh`](deploy/tonnode-keys.sh) for key management.
 
 The server binds `127.0.0.1` by default — put a TLS reverse proxy (Caddy, nginx) in front and set `HOST=0.0.0.0` only if the proxy runs on another machine. Ready-made systemd + Caddy configs live in [`deploy/`](deploy/).
 
