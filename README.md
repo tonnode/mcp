@@ -1,5 +1,7 @@
 # @tonnode/mcp
 
+[Русская версия](README.ru.md)
+
 MCP server that gives AI agents direct **liteserver** access to [The Open Network (TON)](https://ton.org) — no HTTP gateways in the middle. Balances, account state, transaction history and contract get-methods over TON's native ADNL protocol.
 
 Built by [TONNode](https://tonnode.io) — private TON liteservers, archive nodes, mempool stream and indexed API.
@@ -19,7 +21,7 @@ Add to Claude Desktop, Claude Code, ChatGPT, Cursor, Codex or any MCP client:
 }
 ```
 
-That's the whole integration. The server connects to TON mainnet via the public global config by default.
+That's the whole integration. The server connects to TON mainnet via the public global config by default. Ready-made configs for every client — plus programmatic Node.js usage — live in [examples/](examples/).
 
 ## Tools
 

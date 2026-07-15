@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ton": {
+      "command": "npx",
+      "args": ["-y", "@tonnode/mcp"],
+      "env": {
+        "TON_LITESERVERS": "[{\"ip\":\"1.2.3.4\",\"port\":41000,\"key\":\"BASE64_ED25519_PUBKEY\"}]"
+      }
+    }
+  }
+}
