@@ -49,7 +49,7 @@ const addressArg = z
   .describe("TON address in friendly (EQ…/UQ…) or raw (0:…) form");
 
 export function createTonServer(): McpServer {
-  const server = new McpServer({ name: "tonnode", version: "0.3.0" });
+  const server = new McpServer({ name: "tonnode", version: "0.3.1" });
 
   server.tool(
     "get_masterchain_info",
