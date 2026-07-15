@@ -2,10 +2,13 @@
 #
 # Install:
 #   sudo npm install -g @tonnode/mcp
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin tonnode-mcp
 #   sudo cp deploy/tonnode-mcp.service /etc/systemd/system/
 #   sudo cp deploy/tonnode-mcp.env /etc/tonnode-mcp.env && sudo chmod 600 /etc/tonnode-mcp.env
+#   echo "[]" | sudo tee /etc/tonnode-mcp.keys.json && sudo chown tonnode-mcp: /etc/tonnode-mcp.keys.json && sudo chmod 600 /etc/tonnode-mcp.keys.json
 #   sudo systemctl daemon-reload && sudo systemctl enable --now tonnode-mcp
 #
+# Manage keys (no restart needed): deploy/tonnode-keys.sh
 # Check: curl -s http://127.0.0.1:8808/healthz
 
 [Unit]
@@ -17,11 +20,14 @@ Wants=network-online.target
 Type=simple
 EnvironmentFile=/etc/tonnode-mcp.env
 ExecStart=/usr/bin/env tonnode-mcp --http
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=3
 
-# Run unprivileged and sandboxed — this box also runs a TON node.
-DynamicUser=yes
+# Run unprivileged and sandboxed — this box may run other production services.
+# A fixed user (not DynamicUser) so the 600-mode keys file stays readable.
+User=tonnode-mcp
+Group=tonnode-mcp
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

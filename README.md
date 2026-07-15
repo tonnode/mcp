@@ -56,7 +56,7 @@ Clients then connect without installing anything:
 }
 ```
 
-Requests are authenticated with Bearer keys from `TONNODE_KEYS` (comma-separated) and rate-limited per key (`RATE_LIMIT_RPM`, default 300). Sessions are private to the key that opened them, idle sessions are swept after `SESSION_TTL_MIN` (default 30 minutes), and concurrent sessions are capped per key and globally. Without `TONNODE_KEYS` the server refuses to start; set `TONNODE_ALLOW_OPEN=1` to explicitly run keyless behind your own firewall. `GET /healthz` for monitoring.
+Requests are authenticated with Bearer keys and rate-limited per key (`RATE_LIMIT_RPM`, default 300). Keys come from either `TONNODE_KEYS` (comma-separated, fixed) or `TONNODE_KEYS_FILE` — a JSON array of `{"key", "label"?, "rpm"?, "expires"?}` that is **hot-reloaded** on change and on SIGHUP: add or revoke customer keys with no restart, per-key rate limits, and self-expiring keys for subscription plans. A revoked key's live sessions are closed immediately. `GLOBAL_RATE_LIMIT_RPM` adds a total ceiling across all keys to protect the backend liteserver. Sessions are private to the key that opened them, idle sessions are swept after `SESSION_TTL_MIN` (default 30 minutes), and concurrent sessions are capped per key and globally. Without keys the server refuses to start; set `TONNODE_ALLOW_OPEN=1` to explicitly run keyless behind your own firewall. `GET /healthz` for monitoring, [`deploy/tonnode-keys.sh`](deploy/tonnode-keys.sh) for key management.
 
 The server binds `127.0.0.1` by default — put a TLS reverse proxy (Caddy, nginx) in front and set `HOST=0.0.0.0` only if the proxy runs on another machine. Ready-made systemd + Caddy configs live in [`deploy/`](deploy/).
 
@@ -67,10 +67,12 @@ The server binds `127.0.0.1` by default — put a TLS reverse proxy (Caddy, ngin
 | `TON_LITESERVERS` | Use your own liteservers instead of the public config: `[{"ip":"1.2.3.4","port":40004,"key":"<base64 ed25519>"}]` |
 | `TON_CONFIG_URL` | Alternative global-config URL |
 | `TON_NETWORK=testnet` | Use the testnet config (or pass `--testnet`) |
-| `TONNODE_KEYS` | HTTP mode: comma-separated Bearer API keys |
+| `TONNODE_KEYS` | HTTP mode: comma-separated Bearer API keys (simple, fixed) |
+| `TONNODE_KEYS_FILE` | HTTP mode: JSON key file with labels, per-key `rpm`, `expires` — hot-reloaded |
 | `HOST` | HTTP mode: bind address (default `127.0.0.1`) |
 | `PORT` | HTTP mode: listen port (default 8808) |
-| `RATE_LIMIT_RPM` | HTTP mode: requests per minute per key (default 300) |
+| `RATE_LIMIT_RPM` | HTTP mode: default requests per minute per key (default 300) |
+| `GLOBAL_RATE_LIMIT_RPM` | HTTP mode: total ceiling across all keys (default off) |
 | `SESSION_TTL_MIN` | HTTP mode: idle minutes before a session is swept (default 30) |
 | `MAX_SESSIONS` / `MAX_SESSIONS_PER_KEY` | HTTP mode: concurrent session caps (default 500 / 50) |
 
