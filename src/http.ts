@@ -14,49 +14,101 @@
 import { createServer as createHttpServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { readFileSync, watchFile } from "node:fs";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createTonServer } from "./server.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 8808);
-const KEYS = new Set(
-  (process.env.TONNODE_KEYS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-);
 const RATE_LIMIT_RPM = Number(process.env.RATE_LIMIT_RPM ?? 300);
+const GLOBAL_RATE_LIMIT_RPM = Number(process.env.GLOBAL_RATE_LIMIT_RPM ?? 0); // 0 = off
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MIN ?? 30) * 60_000;
 const MAX_SESSIONS = Number(process.env.MAX_SESSIONS ?? 500);
 const MAX_SESSIONS_PER_KEY = Number(process.env.MAX_SESSIONS_PER_KEY ?? 50);
 
-// ---------- auth + per-key token bucket ----------
+// ---------- API keys ----------
+//
+// Two sources:
+//   TONNODE_KEYS       — comma-separated list, fixed for the process lifetime
+//   TONNODE_KEYS_FILE  — JSON array of {"key", "label"?, "rpm"?, "expires"?}.
+//                        Reloaded on change and on SIGHUP — add/revoke keys
+//                        without restarting; sessions of revoked keys close.
+//                        "expires" (ISO date) makes a key stop working on its
+//                        own when a customer's plan runs out.
+
+type KeyRecord = { rpm?: number; expires?: string; label?: string };
+
+const KEYS_FILE = process.env.TONNODE_KEYS_FILE;
+const KEYS = new Map<string, KeyRecord>();
+let OPEN_MODE = false; // decided once at startup; a later-emptied keys file locks, never opens
+
+function loadKeys(reason: string): void {
+  let next: Map<string, KeyRecord>;
+  if (KEYS_FILE) {
+    try {
+      const raw = JSON.parse(readFileSync(KEYS_FILE, "utf-8")) as Array<{ key: string } & KeyRecord>;
+      if (!Array.isArray(raw)) throw new Error("keys file must be a JSON array");
+      next = new Map(
+        raw
+          .filter((e) => typeof e?.key === "string" && e.key.length > 0)
+          .map((e) => [e.key, { rpm: e.rpm, expires: e.expires, label: e.label }])
+      );
+    } catch (err) {
+      console.error(
+        `tonnode-mcp: cannot load ${KEYS_FILE} (${err instanceof Error ? err.message : err}) — keeping previous key set`
+      );
+      return;
+    }
+  } else {
+    next = new Map(
+      (process.env.TONNODE_KEYS ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((k) => [k, {}])
+    );
+  }
+  KEYS.clear();
+  for (const [k, v] of next) KEYS.set(k, v);
+  // revoked keys lose their live sessions immediately
+  for (const [id, s] of sessions) {
+    if (s.key !== "open" && !KEYS.has(s.key)) {
+      sessions.delete(id);
+      s.transport.close().catch(() => {});
+    }
+  }
+  console.error(`tonnode-mcp: ${KEYS.size} API key(s) active (${reason})`);
+}
+
+// ---------- token buckets (per key + optional global backend guard) ----------
 
 const buckets = new Map<string, { tokens: number; stamp: number }>();
 
-function allow(key: string): boolean {
+function allow(id: string, rpm: number): boolean {
   const now = Date.now();
-  const bucket = buckets.get(key) ?? { tokens: RATE_LIMIT_RPM, stamp: now };
-  bucket.tokens = Math.min(
-    RATE_LIMIT_RPM,
-    bucket.tokens + ((now - bucket.stamp) / 60_000) * RATE_LIMIT_RPM
-  );
+  const bucket = buckets.get(id) ?? { tokens: rpm, stamp: now };
+  bucket.tokens = Math.min(rpm, bucket.tokens + ((now - bucket.stamp) / 60_000) * rpm);
   bucket.stamp = now;
   if (bucket.tokens < 1) {
-    buckets.set(key, bucket);
+    buckets.set(id, bucket);
     return false;
   }
   bucket.tokens -= 1;
-  buckets.set(key, bucket);
+  buckets.set(id, bucket);
   return true;
 }
 
 function authenticate(req: IncomingMessage): string | null {
-  if (KEYS.size === 0) return "open";
+  if (OPEN_MODE) return "open";
+  if (KEYS.size === 0) return null; // keys file emptied at runtime → locked, not open
   const match = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "");
-  if (!match || !KEYS.has(match[1].trim())) return null;
-  return match[1].trim();
+  if (!match) return null;
+  const key = match[1].trim();
+  const rec = KEYS.get(key);
+  if (!rec) return null;
+  if (rec.expires && Date.parse(rec.expires) < Date.now()) return null;
+  return key;
 }
 
 function reply(res: ServerResponse, status: number, body: unknown) {
@@ -144,13 +196,24 @@ function logLine(req: IncomingMessage, res: ServerResponse, key: string | null, 
 }
 
 export function startHttp(): void {
+  loadKeys("startup");
+
   // fail closed: a typo'd env var must not silently expose an open server
-  if (KEYS.size === 0 && process.env.TONNODE_ALLOW_OPEN !== "1") {
-    console.error(
-      "tonnode-mcp: refusing to start --http without TONNODE_KEYS. " +
-        "Set TONNODE_KEYS=key1,key2 or explicitly opt in to open access with TONNODE_ALLOW_OPEN=1."
-    );
-    process.exit(1);
+  if (KEYS.size === 0) {
+    if (process.env.TONNODE_ALLOW_OPEN !== "1") {
+      console.error(
+        "tonnode-mcp: refusing to start --http without API keys. " +
+          "Set TONNODE_KEYS / TONNODE_KEYS_FILE, or explicitly opt in to open access with TONNODE_ALLOW_OPEN=1."
+      );
+      process.exit(1);
+    }
+    OPEN_MODE = true;
+  }
+
+  // hot reload: edit the keys file (or send SIGHUP) — no restart, sessions survive
+  if (KEYS_FILE) {
+    watchFile(KEYS_FILE, { interval: 5_000 }, () => loadKeys("file change"));
+    process.on("SIGHUP", () => loadKeys("SIGHUP"));
   }
 
   const httpServer = createHttpServer(async (req, res) => {
@@ -168,8 +231,15 @@ export function startHttp(): void {
       }
 
       key = authenticate(req);
-      if (!key) return reply(res, 401, { error: "invalid or missing API key" });
-      if (!allow(key)) return reply(res, 429, { error: `rate limit exceeded (${RATE_LIMIT_RPM}/min)` });
+      if (!key) return reply(res, 401, { error: "invalid, missing or expired API key" });
+      const rpm = KEYS.get(key)?.rpm ?? RATE_LIMIT_RPM;
+      if (!allow(`key:${key}`, rpm)) {
+        return reply(res, 429, { error: `rate limit exceeded (${rpm}/min for this key)` });
+      }
+      // global guard protects the backend liteserver regardless of how many keys exist
+      if (GLOBAL_RATE_LIMIT_RPM > 0 && !allow("__global__", GLOBAL_RATE_LIMIT_RPM)) {
+        return reply(res, 429, { error: "server is at capacity, retry shortly" });
+      }
 
       sid = req.headers["mcp-session-id"] as string | undefined;
       const session = sid ? sessions.get(sid) : undefined;
@@ -223,9 +293,10 @@ export function startHttp(): void {
   });
 
   httpServer.listen(PORT, HOST, () => {
-    const mode = KEYS.size > 0 ? `${KEYS.size} API key(s)` : "open access (no TONNODE_KEYS set)";
+    const mode = OPEN_MODE ? "open access (explicitly allowed)" : `${KEYS.size} API key(s)`;
+    const globalNote = GLOBAL_RATE_LIMIT_RPM > 0 ? `, global cap ${GLOBAL_RATE_LIMIT_RPM}/min` : "";
     console.error(
-      `tonnode-mcp http listening on ${HOST}:${PORT} — ${mode}, ${RATE_LIMIT_RPM} req/min per key, ` +
+      `tonnode-mcp http listening on ${HOST}:${PORT} — ${mode}, ${RATE_LIMIT_RPM} req/min per key by default${globalNote}, ` +
         `session TTL ${SESSION_TTL_MS / 60_000} min`
     );
   });
