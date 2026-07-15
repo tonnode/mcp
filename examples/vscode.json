@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "ton": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@tonnode/mcp"]
+    }
+  }
+}

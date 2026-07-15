@@ -1,0 +1,4 @@
+# OpenAI Codex CLI — merge into ~/.codex/config.toml
+[mcp_servers.ton]
+command = "npx"
+args = ["-y", "@tonnode/mcp"]

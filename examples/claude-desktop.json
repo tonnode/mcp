@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ton": {
+      "command": "npx",
+      "args": ["-y", "@tonnode/mcp"]
+    }
+  }
+}
