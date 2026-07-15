@@ -6,8 +6,18 @@
 #   sudo systemctl reload caddy
 
 mcp.tonnode.io {
-	# MCP uses SSE streams — disable response buffering.
-	reverse_proxy 127.0.0.1:8808 {
-		flush_interval -1
+	# Optional: static server card so MCP registries (Smithery etc.) can read
+	# metadata without authenticating against the endpoint. Put the JSON at
+	# /var/lib/tonnode-www/.well-known/mcp/server-card.json
+	handle /.well-known/* {
+		root * /var/lib/tonnode-www
+		file_server
+	}
+
+	handle {
+		# MCP uses SSE streams — disable response buffering.
+		reverse_proxy 127.0.0.1:8808 {
+			flush_interval -1
+		}
 	}
 }
