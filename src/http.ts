@@ -102,9 +102,15 @@ function allow(id: string, rpm: number): boolean {
 function authenticate(req: IncomingMessage): string | null {
   if (OPEN_MODE) return "open";
   if (KEYS.size === 0) return null; // keys file emptied at runtime → locked, not open
-  // accept both "Authorization: Bearer <key>" and a bare "Authorization: <key>"
-  // (gateways like Smithery pass the field value through verbatim)
-  const raw = (req.headers.authorization ?? "").trim();
+  // accept "Authorization: Bearer <key>", a bare "Authorization: <key>",
+  // and "X-API-Key: <key>" — gateways like Smithery reserve the
+  // Authorization header for themselves and pass keys via custom headers
+  const apiKeyHeader = req.headers["x-api-key"];
+  const raw = (
+    req.headers.authorization ??
+    (Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader) ??
+    ""
+  ).trim();
   if (!raw) return null;
   const key = raw.replace(/^Bearer\s+/i, "").trim();
   const rec = KEYS.get(key);
