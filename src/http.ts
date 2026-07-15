@@ -102,9 +102,11 @@ function allow(id: string, rpm: number): boolean {
 function authenticate(req: IncomingMessage): string | null {
   if (OPEN_MODE) return "open";
   if (KEYS.size === 0) return null; // keys file emptied at runtime → locked, not open
-  const match = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "");
-  if (!match) return null;
-  const key = match[1].trim();
+  // accept both "Authorization: Bearer <key>" and a bare "Authorization: <key>"
+  // (gateways like Smithery pass the field value through verbatim)
+  const raw = (req.headers.authorization ?? "").trim();
+  if (!raw) return null;
+  const key = raw.replace(/^Bearer\s+/i, "").trim();
   const rec = KEYS.get(key);
   if (!rec) return null;
   if (rec.expires && Date.parse(rec.expires) < Date.now()) return null;
