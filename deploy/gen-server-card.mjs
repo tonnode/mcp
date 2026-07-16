@@ -18,8 +18,11 @@ const card = {
   authentication: { required: true, schemes: ["bearer"] },
   tools: tools.map((t) => ({
     name: t.name,
+    ...(t.title ? { title: t.title } : {}),
     description: t.description,
     inputSchema: t.inputSchema,
+    ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
+    ...(t.annotations ? { annotations: t.annotations } : {}),
   })),
   resources: [],
   prompts: [],
