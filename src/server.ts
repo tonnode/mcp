@@ -5,8 +5,16 @@ import type { TupleItem } from "@ton/core";
 import { getClient, withTimeout } from "./lite.js";
 
 function ok(data: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(data, bigintSafe, 2) }] };
+  // strip bigints once; the same plain object feeds both the text block and structuredContent
+  const plain = JSON.parse(JSON.stringify(data, bigintSafe)) as Record<string, unknown>;
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(plain, null, 2) }],
+    structuredContent: plain,
+  };
 }
+
+/** every tool is a pure read — declare it so agents and gateways can plan safely */
+const READ_ONLY = { readOnlyHint: true, idempotentHint: true, openWorldHint: true };
 
 function fail(err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
@@ -49,22 +57,34 @@ const addressArg = z
   .describe("TON address in friendly (EQ…/UQ…) or raw (0:… / -1:…) form");
 
 export function createTonServer(): McpServer {
-  const server = new McpServer({ name: "tonnode", version: "0.4.0" });
+  const server = new McpServer({ name: "tonnode", version: "0.5.0" });
 
-  server.tool(
+  server.registerTool(
     "get_masterchain_info",
-    "Latest TON masterchain block: workchain, shard, seqno and block hashes. " +
-      "Use when: checking that the network (or your endpoint) is alive and synced, or when you need the current block height. " +
-      "Returns: workchain, shard, seqno, rootHash/fileHash in base64. " +
-      "Tip: masterchain produces a block roughly every 3 seconds — if seqno does not grow between calls, the liteserver is lagging.",
-    {},
+    {
+      title: "Masterchain info",
+      description:
+        "Latest TON masterchain block: workchain, shard, seqno and block hashes. " +
+        "Use when: checking that the network (or your endpoint) is alive and synced, or when you need the current block height. " +
+        "Returns: workchain, shard, seqno, rootHash/fileHash in base64. " +
+        "Tip: masterchain produces a block roughly every 3 seconds — if seqno does not grow between calls, the liteserver is lagging.",
+      inputSchema: {},
+      outputSchema: {
+        workchain: z.number(),
+        shard: z.string(),
+        seqno: z.number(),
+        rootHash: z.string(),
+        fileHash: z.string(),
+      },
+      annotations: READ_ONLY,
+    },
     async () => {
       try {
         const client = await getClient();
         const info = await withTimeout(client.getMasterchainInfo());
         return ok({
           workchain: info.last.workchain,
-          shard: info.last.shard,
+          shard: String(info.last.shard),
           seqno: info.last.seqno,
           rootHash: Buffer.from(info.last.rootHash).toString("base64"),
           fileHash: Buffer.from(info.last.fileHash).toString("base64"),
@@ -75,14 +95,25 @@ export function createTonServer(): McpServer {
     }
   );
 
-  server.tool(
+  server.registerTool(
     "get_balance",
-    "Native GRAM coin balance of a TON address (GRAM is the renamed Toncoin; the network is still called TON). " +
-      "Use when: the question is about the native coin only. For token balances (USDT and other jettons) use get_jetton_balance; " +
-      "for deployment status, code flags and the last transaction use get_account_state. " +
-      "Returns: balance_gram (decimal string, e.g. \"12.5\"), balance_nano (string, 1 GRAM = 1e9 nano) and at_seqno — the masterchain block the reading is anchored to. " +
-      "Never-funded (uninitialized) addresses return 0 — that is not an error.",
-    { address: addressArg },
+    {
+      title: "GRAM balance",
+      description:
+        "Native GRAM coin balance of a TON address (GRAM is the renamed Toncoin; the network is still called TON). " +
+        "Use when: the question is about the native coin only. For token balances (USDT and other jettons) use get_jetton_balance; " +
+        "for deployment status, code flags and the last transaction use get_account_state. " +
+        "Returns: balance_gram (decimal string, e.g. \"12.5\"), balance_nano (string, 1 GRAM = 1e9 nano) and at_seqno — the masterchain block the reading is anchored to. " +
+        "Never-funded (uninitialized) addresses return 0 — that is not an error.",
+      inputSchema: { address: addressArg },
+      outputSchema: {
+        address: z.string(),
+        balance_gram: z.string(),
+        balance_nano: z.string(),
+        at_seqno: z.number(),
+      },
+      annotations: READ_ONLY,
+    },
     async ({ address }) => {
       try {
         const client = await getClient();
@@ -93,7 +124,7 @@ export function createTonServer(): McpServer {
         return ok({
           address: addr.toString(),
           balance_gram: fromNano(nano),
-          balance_nano: nano,
+          balance_nano: nano.toString(),
           at_seqno: master.last.seqno,
         });
       } catch (err) {
@@ -102,14 +133,28 @@ export function createTonServer(): McpServer {
     }
   );
 
-  server.tool(
+  server.registerTool(
     "get_account_state",
-    "Full account state of a TON address: status (active / frozen / uninit), GRAM balance, last-transaction pointer (lt + hash) and whether contract code/data are deployed. " +
-      "Use when: checking if a contract or wallet is deployed, diagnosing why an address does not respond, or before run_get_method (which needs status=active). " +
-      "Returns: status, balance_gram, last_transaction {lt (string), hash — 64-char hex}, has_code, has_data, at_seqno. " +
-      "Reading the result: status=uninit with a non-zero balance means funds arrived but the wallet contract is not deployed yet; " +
-      "the last_transaction pointer is the cursor get_transactions starts from.",
-    { address: addressArg },
+    {
+      title: "Account state",
+      description:
+        "Full account state of a TON address: status (active / frozen / uninit), GRAM balance, last-transaction pointer (lt + hash) and whether contract code/data are deployed. " +
+        "Use when: checking if a contract or wallet is deployed, diagnosing why an address does not respond, or before run_get_method (which needs status=active). " +
+        "Returns: status, balance_gram, last_transaction {lt (string), hash — 64-char hex}, has_code, has_data, at_seqno. " +
+        "Reading the result: status=uninit with a non-zero balance means funds arrived but the wallet contract is not deployed yet; " +
+        "the last_transaction pointer is the cursor get_transactions starts from.",
+      inputSchema: { address: addressArg },
+      outputSchema: {
+        address: z.string(),
+        status: z.string(),
+        balance_gram: z.string(),
+        last_transaction: z.object({ lt: z.string(), hash: z.string() }).nullable(),
+        has_code: z.boolean(),
+        has_data: z.boolean(),
+        at_seqno: z.number(),
+      },
+      annotations: READ_ONLY,
+    },
     async ({ address }) => {
       try {
         const client = await getClient();
@@ -123,7 +168,7 @@ export function createTonServer(): McpServer {
           status,
           balance_gram: fromNano(res.balance?.coins ?? 0n),
           last_transaction: res.lastTx
-            ? { lt: res.lastTx.lt, hash: res.lastTx.hash.toString(16).padStart(64, "0") }
+            ? { lt: String(res.lastTx.lt), hash: res.lastTx.hash.toString(16).padStart(64, "0") }
             : null,
           has_code:
             storageState?.type === "active"
@@ -141,19 +186,39 @@ export function createTonServer(): McpServer {
     }
   );
 
-  server.tool(
+  server.registerTool(
     "get_transactions",
-    "Recent transactions of a TON address, newest first. " +
-      "Use when: verifying that a payment arrived, listing latest wallet activity, or tracing what an address did recently. " +
-      "Returns an array of {hash, lt (string), unix_time, in_value_gram, in_from, out_messages, total_fees_gram} — " +
-      "in_value_gram/in_from describe the incoming message (null for outgoing-only transactions). " +
-      "Never-active addresses return an empty array (not an error); an undecodable transaction comes back as {hash, parse_error: true}. " +
-      "No pagination: each call reads from the account's newest transaction — at most the 30 most recent are reachable. " +
-      "History depth: an error like \"lt not in db\" means this liteserver has already pruned that part of history — " +
-      "only archive endpoints keep the full chain; retry through one (TON_LITESERVERS or a TONNode hosted key) for deep history.",
     {
-      address: addressArg,
-      limit: z.number().int().min(1).max(30).default(10).describe("How many transactions to return, 1–30 (default 10)"),
+      title: "Recent transactions",
+      description:
+        "Recent transactions of a TON address, newest first. " +
+        "Use when: verifying that a payment arrived, listing latest wallet activity, or tracing what an address did recently. " +
+        "Returns an array of {hash, lt (string), unix_time, in_value_gram, in_from, out_messages, total_fees_gram} — " +
+        "in_value_gram/in_from describe the incoming message (null for outgoing-only transactions). " +
+        "Never-active addresses return an empty array (not an error); an undecodable transaction comes back as {hash, parse_error: true}. " +
+        "No pagination: each call reads from the account's newest transaction — at most the 30 most recent are reachable. " +
+        "History depth: an error like \"lt not in db\" means this liteserver has already pruned that part of history — " +
+        "only archive endpoints keep the full chain; retry through one (TON_LITESERVERS or a TONNode hosted key) for deep history.",
+      inputSchema: {
+        address: addressArg,
+        limit: z.number().int().min(1).max(30).default(10).describe("How many transactions to return, 1–30 (default 10)"),
+      },
+      outputSchema: {
+        address: z.string(),
+        transactions: z.array(
+          z.object({
+            hash: z.string(),
+            lt: z.string().optional(),
+            unix_time: z.number().optional(),
+            in_value_gram: z.string().nullable().optional(),
+            in_from: z.string().nullable().optional(),
+            out_messages: z.number().optional(),
+            total_fees_gram: z.string().optional(),
+            parse_error: z.boolean().optional(),
+          })
+        ),
+      },
+      annotations: READ_ONLY,
     },
     async ({ address, limit }) => {
       try {
@@ -174,7 +239,7 @@ export function createTonServer(): McpServer {
             const inInfo = tx.inMessage?.info;
             return {
               hash: cell.hash().toString("hex"),
-              lt: tx.lt,
+              lt: tx.lt.toString(),
               unix_time: tx.now,
               in_value_gram: inInfo?.type === "internal" ? fromNano(inInfo.value.coins) : null,
               in_from: inInfo?.type === "internal" ? inInfo.src.toString() : null,
@@ -202,21 +267,32 @@ export function createTonServer(): McpServer {
     }
   );
 
-  server.tool(
+  server.registerTool(
     "run_get_method",
-    "Execute a read-only get-method (no gas, no state change) on a smart contract: seqno, get_jetton_data, get_sale_data, get_collection_data and anything else the contract exposes. " +
-      "Use when: reading typed on-chain data from a specific contract. The contract must be active — check with get_account_state first if unsure. " +
-      "Args: only integer arguments are supported here (decimal strings); methods that need an address/slice argument have dedicated tools — " +
-      "e.g. use get_jetton_balance instead of calling get_wallet_address manually. " +
-      "Returns: exit_code (0 or 1 = success; 11 usually means the contract has no such method; other values are contract-specific errors) and the result stack — " +
-      "typed items like {type:\"int\", value} or {type:\"cell\"|\"slice\", boc_base64}.",
     {
-      address: addressArg,
-      method: z.string().describe('get-method name, e.g. "seqno" or "get_jetton_data"'),
-      args: z
-        .array(z.string())
-        .default([])
-        .describe('Integer arguments as decimal strings, e.g. ["0"] (most methods take none)'),
+      title: "Run get-method",
+      description:
+        "Execute a read-only get-method (no gas, no state change) on a smart contract: seqno, get_jetton_data, get_sale_data, get_collection_data and anything else the contract exposes. " +
+        "Use when: reading typed on-chain data from a specific contract. The contract must be active — check with get_account_state first if unsure. " +
+        "Args: only integer arguments are supported here (decimal strings); methods that need an address/slice argument have dedicated tools — " +
+        "e.g. use get_jetton_balance instead of calling get_wallet_address manually. " +
+        "Returns: exit_code (0 or 1 = success; 11 usually means the contract has no such method; other values are contract-specific errors) and the result stack — " +
+        "typed items like {type:\"int\", value} or {type:\"cell\"|\"slice\", boc_base64}.",
+      inputSchema: {
+        address: addressArg,
+        method: z.string().describe('get-method name, e.g. "seqno" or "get_jetton_data"'),
+        args: z
+          .array(z.string())
+          .default([])
+          .describe('Integer arguments as decimal strings, e.g. ["0"] (most methods take none)'),
+      },
+      outputSchema: {
+        address: z.string(),
+        method: z.string(),
+        exit_code: z.number(),
+        stack: z.array(z.record(z.string(), z.unknown())),
+      },
+      annotations: READ_ONLY,
     },
     async ({ address, method, args }) => {
       try {
@@ -241,21 +317,34 @@ export function createTonServer(): McpServer {
     }
   );
 
-  server.tool(
+  server.registerTool(
     "get_jetton_balance",
-    "Jetton (TON token) balance of an owner address — USDT and every other TEP-74 token. " +
-      "Use when: the question is about token balances rather than the native GRAM coin (for GRAM use get_balance). " +
-      "Args: owner — the holder's address; jetton_master — the token's master contract address. " +
-      "How it works: derives the owner's jetton-wallet address from the master, then reads its balance on-chain. " +
-      "Returns: jetton_wallet (the derived address), balance in raw indivisible units (string), deployed — " +
-      "false means the owner never held this token, so the balance is 0 — and at_seqno. " +
-      "Raw units: divide by 10^decimals; USDT uses 6 decimals, most other jettons 9 " +
-      "(read decimals from the master's metadata via run_get_method get_jetton_data).",
     {
-      owner: z.string().describe("Holder's TON address, friendly (EQ…/UQ…) or raw (0:…) form"),
-      jetton_master: z
-        .string()
-        .describe('Jetton master contract address, e.g. USDT "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"'),
+      title: "Jetton balance",
+      description:
+        "Jetton (TON token) balance of an owner address — USDT and every other TEP-74 token. " +
+        "Use when: the question is about token balances rather than the native GRAM coin (for GRAM use get_balance). " +
+        "Args: owner — the holder's address; jetton_master — the token's master contract address. " +
+        "How it works: derives the owner's jetton-wallet address from the master, then reads its balance on-chain. " +
+        "Returns: jetton_wallet (the derived address), balance in raw indivisible units (string), deployed — " +
+        "false means the owner never held this token, so the balance is 0 — and at_seqno. " +
+        "Raw units: divide by 10^decimals; USDT uses 6 decimals, most other jettons 9 " +
+        "(read decimals from the master's metadata via run_get_method get_jetton_data).",
+      inputSchema: {
+        owner: z.string().describe("Holder's TON address, friendly (EQ…/UQ…) or raw (0:… / -1:…) form"),
+        jetton_master: z
+          .string()
+          .describe('Jetton master contract address, e.g. USDT "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"'),
+      },
+      outputSchema: {
+        owner: z.string(),
+        jetton_master: z.string(),
+        jetton_wallet: z.string(),
+        balance: z.string(),
+        deployed: z.boolean(),
+        at_seqno: z.number(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ owner, jetton_master }) => {
       try {
@@ -314,17 +403,30 @@ export function createTonServer(): McpServer {
     }
   );
 
-  server.tool(
+  server.registerTool(
     "parse_address",
-    "Parse, validate and convert a TON address between all its formats — purely local, no network access. " +
-      "Use when: normalizing user input, comparing addresses that look different but may be the same account, " +
-      "or converting to the raw form that indexers and APIs expect. " +
-      "Accepts friendly (EQ…/UQ…, with or without URL-safe characters) and raw (workchain:hex) forms. " +
-      "Returns: raw, friendly_bounceable (EQ…), friendly_non_bounceable (UQ…), workchain and flags of the given input. " +
-      "Background: EQ… and UQ… encode the SAME account — EQ (bounceable) is conventional for contracts, " +
-      "UQ (non-bounceable) for user wallets; two addresses are equal if their raw forms match.",
     {
-      address: z.string().describe("TON address in any form: friendly (EQ…/UQ…) or raw (0:… / -1:…)"),
+      title: "Parse address",
+      description:
+        "Parse, validate and convert a TON address between all its formats — purely local, no network access. " +
+        "Use when: normalizing user input, comparing addresses that look different but may be the same account, " +
+        "or converting to the raw form that indexers and APIs expect. " +
+        "Accepts friendly (EQ…/UQ…, with or without URL-safe characters) and raw (workchain:hex) forms. " +
+        "Returns: raw, friendly_bounceable (EQ…), friendly_non_bounceable (UQ…), workchain and flags of the given input. " +
+        "Background: EQ… and UQ… encode the SAME account — EQ (bounceable) is conventional for contracts, " +
+        "UQ (non-bounceable) for user wallets; two addresses are equal if their raw forms match.",
+      inputSchema: {
+        address: z.string().describe("TON address in any form: friendly (EQ…/UQ…) or raw (0:… / -1:…)"),
+      },
+      outputSchema: {
+        raw: z.string(),
+        friendly_bounceable: z.string(),
+        friendly_non_bounceable: z.string(),
+        workchain: z.number(),
+        input_format: z.enum(["friendly", "raw"]),
+        input_flags: z.object({ bounceable: z.boolean(), test_only: z.boolean() }).nullable(),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ address }) => {
       try {
