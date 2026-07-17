@@ -204,6 +204,17 @@ function logLine(req: IncomingMessage, res: ServerResponse, key: string | null, 
 }
 
 export function startHttp(): void {
+  // One process serves every API key. A stray async error escaping a
+  // dependency (e.g. an upstream WebSocket emitting outside any call's
+  // try/catch) must be logged, not allowed to take down all sessions.
+  process.on("unhandledRejection", (reason) => {
+    const text = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+    console.error(`${new Date().toISOString()} UNHANDLED REJECTION ${text}`);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error(`${new Date().toISOString()} UNCAUGHT EXCEPTION ${err.stack ?? err.message}`);
+  });
+
   loadKeys("startup");
 
   // fail closed: a typo'd env var must not silently expose an open server

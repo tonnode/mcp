@@ -3,8 +3,9 @@ import { z } from "zod";
 import { Address, beginCell, Cell, fromNano, loadTransaction, parseTuple, serializeTuple } from "@ton/core";
 import type { TupleItem } from "@ton/core";
 import { getClient, withTimeout } from "./lite.js";
+import { registerSwapTools } from "./swap.js";
 
-function ok(data: unknown) {
+export function ok(data: unknown) {
   // strip bigints once; the same plain object feeds both the text block and structuredContent
   const plain = JSON.parse(JSON.stringify(data, bigintSafe)) as Record<string, unknown>;
   return {
@@ -16,7 +17,7 @@ function ok(data: unknown) {
 /** every tool is a pure read — declare it so agents and gateways can plan safely */
 const READ_ONLY = { readOnlyHint: true, idempotentHint: true, openWorldHint: true };
 
-function fail(err: unknown) {
+export function fail(err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
   return { content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }], isError: true };
 }
@@ -25,7 +26,7 @@ function bigintSafe(_key: string, value: unknown) {
   return typeof value === "bigint" ? value.toString() : value;
 }
 
-function parseAddress(raw: string): Address {
+export function parseAddress(raw: string): Address {
   try {
     return Address.parse(raw.trim());
   } catch {
@@ -57,7 +58,7 @@ const addressArg = z
   .describe("TON address in friendly (EQ…/UQ…) or raw (0:… / -1:…) form");
 
 export function createTonServer(): McpServer {
-  const server = new McpServer({ name: "tonnode", version: "0.5.0" });
+  const server = new McpServer({ name: "tonnode", version: "0.6.0" });
 
   server.registerTool(
     "get_masterchain_info",
@@ -454,6 +455,8 @@ export function createTonServer(): McpServer {
       }
     }
   );
+
+  registerSwapTools(server);
 
   return server;
 }
