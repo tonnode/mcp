@@ -38,6 +38,19 @@ That's the whole integration. The server connects to TON mainnet via the public 
 | `run_get_method` | Read-only get-methods on contracts | *"Call `get_jetton_data` on this master"* |
 | `parse_address` | Convert/validate EQ…/UQ…/raw forms, offline | *"Are these two addresses the same?"* |
 | `get_masterchain_info` | Masterchain head: seqno, shard, hashes | *"Is the network (or my endpoint) alive?"* |
+| `get_swap_quote` | Firm DEX swap quote (GRAM ⇄ any jetton) via Omniston | *"How much USDT for 100 GRAM right now?"* |
+| `build_swap_tx` | Unsigned, TonConnect-ready swap transaction | *"Prepare that swap for my wallet to sign"* |
+
+## Swaps — agents that can actually trade
+
+`get_swap_quote` and `build_swap_tx` are powered by [Omniston](https://docs.ston.fi/developer-section/omniston), STON.fi's RFQ protocol aggregating STON.fi and DeDust liquidity. No API key needed.
+
+The flow is strictly **non-custodial** — the server never sees a private key, never signs and never broadcasts:
+
+1. `get_swap_quote` locks a firm quote (amounts in raw indivisible units; the answer includes the slippage floor, price impact, gas budget and DEX route).
+2. `build_swap_tx` turns the quote into unsigned messages in exactly the shape `tonConnectUi.sendTransaction()` expects — signing and sending stay with the wallet owner.
+
+Quotes expire in about a minute, so build promptly. Omniston emulates the transfer while building: if the wallet doesn't hold the input amount, the build fails up front instead of burning gas on-chain.
 
 ## Hosted / self-hosted HTTP mode
 
@@ -79,6 +92,8 @@ The server binds `127.0.0.1` by default — put a TLS reverse proxy (Caddy, ngin
 | `GLOBAL_RATE_LIMIT_RPM` | HTTP mode: total ceiling across all keys (default off) |
 | `SESSION_TTL_MIN` | HTTP mode: idle minutes before a session is swept (default 30) |
 | `MAX_SESSIONS` / `MAX_SESSIONS_PER_KEY` | HTTP mode: concurrent session caps (default 500 / 50) |
+| `OMNISTON_API_URL` | Swap tools: alternative Omniston WebSocket endpoint (default `wss://omni-ws.ston.fi`) |
+| `OMNISTON_INTEGRATOR_ADDRESS` / `OMNISTON_INTEGRATOR_FEE_BPS` | Swap tools: optional integrator revenue share in bps of the output — always visible to the caller as `integrator_fee_units` in every quote (default off) |
 
 ### A note on public liteservers
 
