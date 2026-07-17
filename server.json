@@ -2,18 +2,18 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.tonnode/mcp",
   "title": "TONNode — TON blockchain access",
-  "description": "Liteserver access to TON: balances, account state, transactions, get-methods over native ADNL — plus non-custodial DEX swaps via Omniston.",
+  "description": "Liteserver access to TON: balances, account state, transactions, get-methods over native ADNL — plus non-custodial DEX swaps and cross-chain swaps via Omniston.",
   "repository": {
     "url": "https://github.com/tonnode/mcp",
     "source": "github"
   },
   "websiteUrl": "https://tonnode.io/mcp",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@tonnode/mcp",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "transport": {
         "type": "stdio"
       },

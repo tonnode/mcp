@@ -40,6 +40,11 @@ That's the whole integration. The server connects to TON mainnet via the public 
 | `get_masterchain_info` | Masterchain head: seqno, shard, hashes | *"Is the network (or my endpoint) alive?"* |
 | `get_swap_quote` | Firm DEX swap quote (GRAM ⇄ any jetton) via Omniston | *"How much USDT for 100 GRAM right now?"* |
 | `build_swap_tx` | Unsigned, TonConnect-ready swap transaction | *"Prepare that swap for my wallet to sign"* |
+| `get_crosschain_quote` | Quote TON → Ethereum/Arbitrum/Base/BNB/Polygon/Avalanche | *"How much USDT on Ethereum for my TON USDT?"* |
+| `build_crosschain_swap_tx` | Unsigned HTLC escrow transaction + its secret | *"Start that cross-chain swap"* |
+| `track_crosschain_swap` | Live phases of a cross-chain trade on both chains | *"Did the resolver lock my USDT on Ethereum?"* |
+| `disclose_crosschain_secret` | Reveal the secret — atomically settles both sides | *"Complete the swap"* |
+| `build_crosschain_refund` | Unsigned cancellation that reclaims escrowed funds | *"The trade stalled — get my money back"* |
 
 ## Swaps — agents that can actually trade
 
@@ -51,6 +56,12 @@ The flow is strictly **non-custodial** — the server never sees a private key, 
 2. `build_swap_tx` turns the quote into unsigned messages in exactly the shape `tonConnectUi.sendTransaction()` expects — signing and sending stay with the wallet owner.
 
 Quotes expire in about a minute, so build promptly. Omniston emulates the transfer while building: if the wallet doesn't hold the input amount, the build fails up front instead of burning gas on-chain.
+
+### Cross-chain
+
+The `*_crosschain_*` tools take the same idea across blockchains: pay in GRAM or any TON jetton, receive USDT/USDC/native coins on **Ethereum, Arbitrum, Base, BNB, Polygon or Avalanche** — settled through Omniston's atomic HTLC escrow, typically in well under a minute. TON is always the source chain (the signer is a TON wallet).
+
+The agent drives the full atomic-swap lifecycle: quote → build (the tool generates the HTLC secret and hands it to the caller — the server keeps nothing) → sign & send → track both chains → disclose the secret to settle, or build a refund if the trade stalls. At no point can the server, the resolver or anyone else redirect the funds: the secret only completes the trade as quoted, and an unfilled escrow is always reclaimable by the owner wallet.
 
 ## Hosted / self-hosted HTTP mode
 
