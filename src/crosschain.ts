@@ -33,7 +33,6 @@ import {
   TESTNET_ERROR,
   describeError,
   firstQuote,
-  integratorParams,
   parseTonAsset,
   parseUnits,
   renderAsset,
@@ -248,8 +247,10 @@ export function registerCrosschainTools(server: McpServer): void {
               exact === "output"
                 ? { $case: "outputUnits", value: units }
                 : { $case: "inputUnits", value: units },
+            // no integratorParams() here: Omniston requires the integrator
+            // address to live on the DESTINATION chain, and ours is a TON
+            // wallet — attaching it gets the RFQ rejected outright
             settlementParams: [{ params: { $case: "order", value: {} } }],
-            ...integratorParams(),
           })
         );
 
