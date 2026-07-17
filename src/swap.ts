@@ -245,8 +245,11 @@ export function registerSwapTools(server: McpServer): void {
           .int()
           .min(1)
           .max(500)
-          .default(100)
-          .describe("Max price slippage in basis points, 1–500 (default 100 = 1%). The cap is deliberate: quotes here are firm, higher slippage only feeds MEV"),
+          .default(500)
+          .describe(
+            "Max price slippage in basis points (1 bps = 0.01%), 1–500, default 500 = 5%. " +
+              "Tighten for stronger price protection — below the floor the swap refunds instead of executing; the 5% cap is deliberate, more only feeds MEV"
+          ),
       },
       outputSchema: {
         quote_id: z.string(),
