@@ -1,8 +1,8 @@
 {
   "name": "@tonnode/mcp",
   "mcpName": "io.github.tonnode/mcp",
-  "version": "0.7.0",
-  "description": "Liteserver access to TON: balances, account state, transactions, get-methods over native ADNL — plus non-custodial DEX swaps and cross-chain swaps via Omniston.",
+  "version": "0.8.0",
+  "description": "Liteserver access to TON: balances, account state, transactions, get-methods over native ADNL — plus non-custodial DEX swaps, cross-chain swaps, and TON wallet generation.",
   "type": "module",
   "bin": {
     "tonnode-mcp": "dist/index.js"
@@ -55,6 +55,8 @@
     "@noble/hashes": "^2.2.0",
     "@ston-fi/omniston-sdk": "^0.8.6",
     "@ton/core": "^0.63.1",
+    "@ton/crypto": "^3.3.0",
+    "@ton/ton": "^16.3.0",
     "ton-lite-client": "^3.1.1",
     "zod": "^4.4.3"
   },

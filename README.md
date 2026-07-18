@@ -45,6 +45,13 @@ That's the whole integration. The server connects to TON mainnet via the public 
 | `track_crosschain_swap` | Live phases of a cross-chain trade on both chains | *"Did the resolver lock my USDT on Ethereum?"* |
 | `disclose_crosschain_secret` | Reveal the secret — atomically settles both sides | *"Complete the swap"* |
 | `build_crosschain_refund` | Unsigned cancellation that reclaims escrowed funds | *"The trade stalled — get my money back"* |
+| `generate_wallet` | Mint a fresh TON wallet (mnemonic + keys + address) | *"Create a wallet for my agent to use"* |
+
+## Wallet generation
+
+`generate_wallet` mints a brand-new wallet — a 24-word mnemonic, its ed25519 keypair and the address for the chosen contract version (**v4** default, plus **v3r2**, **v5r1** and **highload_v3** for mass payouts). The v3r2/v4/v5r1 addresses come from `@ton/ton`'s canonical contracts; highload_v3 is derived from the official contract code and cross-checked against a maintained reference implementation.
+
+> ⚠️ **This returns secret key material.** In hosted mode the keys are generated on the server and returned over TLS — treat every generated wallet as **hot**: fine for programmatic/ephemeral use, but move any meaningful balance to cold storage, and keep the response out of logs and shared transcripts. The server never stores or logs the mnemonic or private key (only the public address). Operators can set `TONNODE_DISABLE_WALLET_GEN=1` to remove the tool entirely.
 
 ## Swaps — agents that can actually trade
 
@@ -105,6 +112,7 @@ The server binds `127.0.0.1` by default — put a TLS reverse proxy (Caddy, ngin
 | `MAX_SESSIONS` / `MAX_SESSIONS_PER_KEY` | HTTP mode: concurrent session caps (default 500 / 50) |
 | `OMNISTON_API_URL` | Swap tools: alternative Omniston WebSocket endpoint (default `wss://omni-ws.ston.fi`) |
 | `OMNISTON_INTEGRATOR_ADDRESS` / `OMNISTON_INTEGRATOR_FEE_BPS` | Swap tools: optional integrator revenue share in bps of the output — always visible to the caller as `integrator_fee_units` in every quote (default off) |
+| `TONNODE_DISABLE_WALLET_GEN` | Set to `1` to remove the `generate_wallet` tool (e.g. on a shared hosted endpoint where you don't want key material generated server-side) |
 
 ### A note on public liteservers
 
