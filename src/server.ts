@@ -5,6 +5,7 @@ import type { TupleItem } from "@ton/core";
 import { getClient, withTimeout } from "./lite.js";
 import { registerSwapTools } from "./swap.js";
 import { registerCrosschainTools } from "./crosschain.js";
+import { registerWalletTools } from "./wallet.js";
 
 export function ok(data: unknown) {
   // strip bigints once; the same plain object feeds both the text block and structuredContent
@@ -59,7 +60,7 @@ const addressArg = z
   .describe("TON address in friendly (EQ…/UQ…) or raw (0:… / -1:…) form");
 
 export function createTonServer(): McpServer {
-  const server = new McpServer({ name: "tonnode", version: "0.7.0" });
+  const server = new McpServer({ name: "tonnode", version: "0.8.0" });
 
   server.registerTool(
     "get_masterchain_info",
@@ -459,6 +460,7 @@ export function createTonServer(): McpServer {
 
   registerSwapTools(server);
   registerCrosschainTools(server);
+  registerWalletTools(server);
 
   return server;
 }
