@@ -33,6 +33,7 @@ That's the whole integration. The server connects to TON mainnet via the public 
 |---|---|---|
 | `get_balance` | GRAM balance of an address | *"How much GRAM does EQ… hold?"* |
 | `get_jetton_balance` | Jetton/token balance (USDT and any TEP-74 token) | *"How much USDT is on this wallet?"* |
+| `get_jetton_info` | Token metadata: name, symbol, **decimals**, supply | *"What are this jetton's decimals?"* |
 | `get_transactions` | Recent transactions: values, senders, fees | *"Did my payment arrive?"* |
 | `get_account_state` | Status, deployment flags, last-tx pointer | *"Is this contract deployed?"* |
 | `run_get_method` | Read-only get-methods on contracts | *"Call `get_jetton_data` on this master"* |

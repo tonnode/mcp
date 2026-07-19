@@ -49,6 +49,8 @@ type EvmChain = (typeof EVM_CHAINS)[number];
 const TRACK_WAIT_MS = 3_000;
 // Before disclosing a secret the order MUST be found — wait a little longer.
 const DISCLOSE_PROBE_WAIT_MS = 6_000;
+// Refuse disclosure this close (seconds) to the destination rollback opening.
+const ROLLBACK_SAFETY_MARGIN_S = 60;
 
 const READY_PHASES = new Set([
   "EXECUTION_PHASE_READY_FOR_PRIVATE_COMPLETION",
@@ -549,6 +551,19 @@ export function registerCrosschainTools(server: McpServer): void {
                 "secret does not match this execution's on-chain hash — wrong secret or wrong quote_id pair; secret NOT disclosed"
               );
             }
+          }
+          // Refuse to disclose within a safety margin of the destination
+          // position's rollback opening: past it the resolver could roll the
+          // destination back and still claim the TON side with the now-public
+          // preimage — the classic late-reveal loss. Refund instead. (Checked
+          // last, after the secret is validated, so a mistyped secret gets the
+          // precise error rather than this one.)
+          const rollbackAt = exec.outputPositionPhaseTimestamps?.privateRollbackAvailableTimestamp;
+          if (rollbackAt && Date.now() / 1000 + ROLLBACK_SAFETY_MARGIN_S > rollbackAt) {
+            throw new Error(
+              "too close to the destination rollback window — a late reveal risks losing the input; " +
+                "do NOT disclose, reclaim the escrow with build_crosschain_refund instead; secret NOT disclosed"
+            );
           }
           await withDeadline(
             omni.orderDiscloseHtlcSecret({
