@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { Address, beginCell, Cell, fromNano, loadTransaction, parseTuple, serializeTuple } from "@ton/core";
-import type { TupleItem } from "@ton/core";
+import { createHash } from "node:crypto";
+import { Address, beginCell, Cell, Dictionary, fromNano, loadTransaction, parseTuple, serializeTuple } from "@ton/core";
+import type { Slice, TupleItem } from "@ton/core";
 import { getClient, withTimeout } from "./lite.js";
 import { registerSwapTools } from "./swap.js";
 import { registerCrosschainTools } from "./crosschain.js";
@@ -59,8 +60,48 @@ const addressArg = z
   .string()
   .describe("TON address in friendly (EQ…/UQ…) or raw (0:… / -1:…) form");
 
+// ---- TEP-64 jetton metadata parsing (for get_jetton_info) ----
+
+/** Dictionary key for an on-chain metadata attribute: sha256(name) as a 256-bit int. */
+function metaKey(name: string): bigint {
+  return BigInt("0x" + createHash("sha256").update(name, "ascii").digest("hex"));
+}
+
+/** Read a TEP-64 "snake" string: the bytes in this slice, continued in ref[0]. */
+function readSnake(slice: Slice): Buffer {
+  const chunks: Buffer[] = [];
+  let s = slice;
+  for (let depth = 0; depth < 64; depth++) {
+    const bytes = Math.floor(s.remainingBits / 8);
+    if (bytes > 0) chunks.push(s.loadBuffer(bytes));
+    if (s.remainingRefs > 0) s = s.loadRef().beginParse();
+    else break;
+  }
+  return Buffer.concat(chunks);
+}
+
+/** Decode an on-chain metadata value cell (0x00 snake / 0x01 chunked) to a string. */
+function decodeMetaValue(cell: Cell): string | null {
+  try {
+    const s = cell.beginParse();
+    if (s.remainingBits < 8) return null;
+    const tag = s.loadUint(8);
+    if (tag === 0x00) return readSnake(s).toString("utf-8");
+    if (tag === 0x01) {
+      const dict = s.loadDict(Dictionary.Keys.Uint(32), Dictionary.Values.Cell());
+      const parts = [...dict.keys()]
+        .sort((a, b) => a - b)
+        .map((k) => readSnake(dict.get(k)!.beginParse()));
+      return Buffer.concat(parts).toString("utf-8");
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function createTonServer(): McpServer {
-  const server = new McpServer({ name: "tonnode", version: "0.8.0" });
+  const server = new McpServer({ name: "tonnode", version: "0.9.0" });
 
   server.registerTool(
     "get_masterchain_info",
@@ -399,6 +440,123 @@ export function createTonServer(): McpServer {
           balance,
           deployed,
           at_seqno: master.last.seqno,
+        });
+      } catch (err) {
+        return fail(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_jetton_info",
+    {
+      title: "Jetton info / metadata",
+      description:
+        "Metadata of a jetton master (token) contract: name, symbol, DECIMALS, total supply, mintable, admin. " +
+        "Use when: you need a token's decimals to convert raw indivisible units — swap quotes and balances are in raw units, so a human amount = raw / 10^decimals (USDT is 6, most jettons 9). Call this before get_swap_quote/build_swap_tx when you don't know the token's decimals. " +
+        "Args: jetton_master — the token's master contract address (e.g. USDT \"EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\"). " +
+        "Returns: name, symbol, decimals (a number, or null when the token stores metadata off-chain), description, total_supply (raw), mintable, admin, metadata_type (onchain/offchain) and metadata_uri. " +
+        "Off-chain tokens keep name/symbol/decimals in a JSON file at metadata_uri — this tool returns the URI but does not fetch it, so decimals may be null (assume 6 for USDT-like, 9 otherwise, or fetch the URI).",
+      inputSchema: {
+        jetton_master: z
+          .string()
+          .describe('Jetton master contract address, e.g. USDT "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"'),
+      },
+      outputSchema: {
+        jetton_master: z.string(),
+        name: z.string().nullable(),
+        symbol: z.string().nullable(),
+        decimals: z.number().nullable(),
+        description: z.string().nullable(),
+        total_supply: z.string(),
+        mintable: z.boolean(),
+        admin: z.string().nullable(),
+        metadata_type: z.string(),
+        metadata_uri: z.string().nullable(),
+        at_seqno: z.number(),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ jetton_master }) => {
+      try {
+        const client = await getClient();
+        const master = parseAddress(jetton_master);
+        const head = await withTimeout(client.getMasterchainInfo());
+        const res = await withTimeout(
+          client.runMethod(master, "get_jetton_data", serializeTuple([]).toBoc(), head.last)
+        );
+        if (res.exitCode !== 0 && res.exitCode !== 1) {
+          throw new Error(
+            `get_jetton_data failed with exit code ${res.exitCode} — is ${master.toString()} really a jetton master?`
+          );
+        }
+        const raw = typeof res.result === "string" ? Buffer.from(res.result, "base64") : res.result;
+        const stack = parseTuple(Cell.fromBoc(raw!)[0]);
+        // get_jetton_data returns: total_supply, mintable, admin, content, wallet_code
+        const totalSupply = stack[0]?.type === "int" ? stack[0].value : 0n;
+        const mintable = stack[1]?.type === "int" ? stack[1].value !== 0n : false;
+
+        let admin: string | null = null;
+        const adminItem = stack[2];
+        if (adminItem && (adminItem.type === "slice" || adminItem.type === "cell")) {
+          try {
+            const a = adminItem.cell.beginParse().loadAddressAny();
+            admin = a instanceof Address ? a.toString() : null;
+          } catch {
+            // addr_none or unparseable — leave null
+          }
+        }
+
+        let name: string | null = null;
+        let symbol: string | null = null;
+        let description: string | null = null;
+        let decimals: number | null = null;
+        let metadataType = "unknown";
+        let metadataUri: string | null = null;
+        const contentItem = stack[3];
+        if (contentItem && (contentItem.type === "cell" || contentItem.type === "slice")) {
+          const cs = contentItem.cell.beginParse();
+          const prefix = cs.remainingBits >= 8 ? cs.loadUint(8) : -1;
+          if (prefix === 0x01) {
+            metadataType = "offchain";
+            metadataUri = readSnake(cs).toString("utf-8") || null;
+          } else if (prefix === 0x00) {
+            metadataType = "onchain";
+            const dict = cs.loadDict(Dictionary.Keys.BigUint(256), Dictionary.Values.Cell());
+            const attr = (k: string) => {
+              const c = dict.get(metaKey(k));
+              return c ? decodeMetaValue(c) : null;
+            };
+            name = attr("name");
+            symbol = attr("symbol");
+            description = attr("description");
+            const dec = attr("decimals");
+            if (dec !== null) {
+              const n = Number(dec.trim());
+              if (Number.isInteger(n) && n >= 0 && n <= 255) decimals = n;
+            }
+            // semi-chained tokens (e.g. mainnet USDT) keep decimals on-chain but
+            // name/symbol/image in an off-chain JSON at a "uri" key — surface it
+            const uri = attr("uri");
+            if (uri) {
+              metadataUri = uri.trim() || null;
+              metadataType = "onchain+uri";
+            }
+          }
+        }
+
+        return ok({
+          jetton_master: master.toString(),
+          name,
+          symbol,
+          decimals,
+          description,
+          total_supply: totalSupply.toString(),
+          mintable,
+          admin,
+          metadata_type: metadataType,
+          metadata_uri: metadataUri,
+          at_seqno: head.last.seqno,
         });
       } catch (err) {
         return fail(err);

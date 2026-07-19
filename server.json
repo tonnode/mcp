@@ -8,12 +8,18 @@
     "source": "github"
   },
   "websiteUrl": "https://tonnode.io/mcp",
-  "version": "0.8.0",
+  "version": "0.9.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.tonnode.io/mcp"
+    }
+  ],
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@tonnode/mcp",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "transport": {
         "type": "stdio"
       },

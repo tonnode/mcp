@@ -1,7 +1,7 @@
 {
   "name": "@tonnode/mcp",
   "mcpName": "io.github.tonnode/mcp",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Liteserver access to TON: balances, account state, transactions, get-methods over native ADNL — plus non-custodial DEX swaps, cross-chain swaps, and TON wallet generation.",
   "type": "module",
   "bin": {
