@@ -37,7 +37,18 @@ const MAX_SESSIONS_PER_KEY = Number(process.env.MAX_SESSIONS_PER_KEY ?? 50);
 //                        "expires" (ISO date) makes a key stop working on its
 //                        own when a customer's plan runs out.
 
-type KeyRecord = { rpm?: number; expires?: string; label?: string };
+type KeyRecord = {
+  rpm?: number;
+  expires?: string;
+  label?: string;
+  /**
+   * Optional source-address allowlist: plain IPv4/IPv6 addresses or CIDR
+   * ranges. ABSENT means "any address", which is how every key issued before
+   * this existed behaves — the restriction only ever engages when a customer
+   * opts in from the dashboard, so adding this field cannot lock anyone out.
+   */
+  ips?: string[];
+};
 
 const KEYS_FILE = process.env.TONNODE_KEYS_FILE;
 const KEYS = new Map<string, KeyRecord>();
@@ -99,6 +110,67 @@ function allow(id: string, rpm: number): boolean {
   return true;
 }
 
+/**
+ * The caller's address as seen past the TLS proxy.
+ *
+ * Caddy sets X-Forwarded-For and we bind 127.0.0.1, so the only writer of that
+ * header is our own proxy — a client-supplied value cannot reach us. The first
+ * entry is the original client.
+ */
+function clientIp(req: IncomingMessage): string {
+  const fwd = req.headers["x-forwarded-for"];
+  const raw = Array.isArray(fwd) ? fwd[0] : fwd;
+  const first = (raw ?? "").split(",")[0].trim();
+  const addr = first || req.socket.remoteAddress || "";
+  // ::ffff:1.2.3.4 → 1.2.3.4
+  return addr.startsWith("::ffff:") ? addr.slice(7) : addr;
+}
+
+function ipToBig(ip: string): bigint | null {
+  if (ip.includes(":")) {
+    // IPv6, possibly with a :: run.
+    const [head, tail] = ip.split("::");
+    const h = head ? head.split(":") : [];
+    const t = tail ? tail.split(":") : [];
+    if (h.length + t.length > 8) return null;
+    const parts = ip.includes("::")
+      ? [...h, ...Array(8 - h.length - t.length).fill("0"), ...t]
+      : ip.split(":");
+    if (parts.length !== 8) return null;
+    let out = 0n;
+    for (const part of parts) {
+      if (!/^[0-9a-f]{0,4}$/i.test(part)) return null;
+      out = (out << 16n) | BigInt(parseInt(part || "0", 16));
+    }
+    return out;
+  }
+  const octets = ip.split(".");
+  if (octets.length !== 4) return null;
+  let out = 0n;
+  for (const octet of octets) {
+    const n = Number(octet);
+    if (!/^\d{1,3}$/.test(octet) || n > 255) return null;
+    out = (out << 8n) | BigInt(n);
+  }
+  return out;
+}
+
+/** True when `ip` falls inside `rule`, which is an address or a CIDR block. */
+function ipMatches(ip: string, rule: string): boolean {
+  const [network, bitsRaw] = rule.split("/");
+  const a = ipToBig(ip);
+  const b = ipToBig(network);
+  if (a === null || b === null) return false;
+  if (bitsRaw === undefined) return a === b;
+
+  const width = network.includes(":") ? 128 : 32;
+  const bits = Number(bitsRaw);
+  if (!Number.isInteger(bits) || bits < 0 || bits > width) return false;
+  if (ip.includes(":") !== network.includes(":")) return false;
+  const mask = bits === 0 ? 0n : ((1n << BigInt(bits)) - 1n) << BigInt(width - bits);
+  return (a & mask) === (b & mask);
+}
+
 function authenticate(req: IncomingMessage): string | null {
   if (OPEN_MODE) return "open";
   if (KEYS.size === 0) return null; // keys file emptied at runtime → locked, not open
@@ -116,6 +188,13 @@ function authenticate(req: IncomingMessage): string | null {
   const rec = KEYS.get(key);
   if (!rec) return null;
   if (rec.expires && Date.parse(rec.expires) < Date.now()) return null;
+  if (rec.ips && rec.ips.length > 0) {
+    const ip = clientIp(req);
+    if (!ip || !rec.ips.some((rule) => ipMatches(ip, rule))) {
+      console.error(`auth: ${key.slice(0, 11)}… rejected from ${ip || "unknown"} (not in allowlist)`);
+      return null;
+    }
+  }
   return key;
 }
 
