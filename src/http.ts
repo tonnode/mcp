@@ -125,10 +125,25 @@ function allow(id: string, rpm: number): boolean {
  * entry is the original client.
  */
 function clientIp(req: IncomingMessage): string {
+  // The LAST entry, not the first.
+  //
+  // This address decides whether a key with an allowlist is accepted, so the
+  // question is which part of the header an attacker controls. Caddy as
+  // configured today REPLACES X-Forwarded-For with the real peer, so there is
+  // exactly one entry and either end works — verified by proxying a spoofed
+  // header through it.
+  //
+  // But that safety comes from the proxy, not from here. Put any appending
+  // proxy in front and the header becomes "<whatever the client typed>, <real
+  // client>": the first entry is then attacker-controlled and the allowlist
+  // is bypassed by sending one header. The last entry is always the one our
+  // own nearest proxy wrote. If that ever stops matching a customer's rule the
+  // failure is a refused request, not a granted one.
   const fwd = req.headers["x-forwarded-for"];
-  const raw = Array.isArray(fwd) ? fwd[0] : fwd;
-  const first = (raw ?? "").split(",")[0].trim();
-  const addr = first || req.socket.remoteAddress || "";
+  const raw = Array.isArray(fwd) ? fwd[fwd.length - 1] : fwd;
+  const parts = (raw ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+  const nearest = parts.length > 0 ? parts[parts.length - 1] : "";
+  const addr = nearest || req.socket.remoteAddress || "";
   // ::ffff:1.2.3.4 → 1.2.3.4
   return addr.startsWith("::ffff:") ? addr.slice(7) : addr;
 }
