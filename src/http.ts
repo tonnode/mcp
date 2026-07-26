@@ -63,7 +63,14 @@ function loadKeys(reason: string): void {
       next = new Map(
         raw
           .filter((e) => typeof e?.key === "string" && e.key.length > 0)
-          .map((e) => [e.key, { rpm: e.rpm, expires: e.expires, label: e.label }])
+          // `ips` was missing from this projection, so the allowlist below
+          // could never fire for a key loaded from the file — which is every
+          // key in production. The billing service validates the addresses,
+          // writes them into the registry and the console shows the key as
+          // restricted; the server then dropped the field on load and served
+          // the key from anywhere. Every field the auth path reads has to
+          // survive this map.
+          .map((e) => [e.key, { rpm: e.rpm, expires: e.expires, label: e.label, ips: e.ips }])
       );
     } catch (err) {
       console.error(
