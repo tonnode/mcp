@@ -220,14 +220,43 @@ function authenticate(req: IncomingMessage): string | null {
   return key;
 }
 
-function reply(res: ServerResponse, status: number, body: unknown) {
+function reply(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
   res
     .writeHead(status, {
       "Content-Type": "application/json",
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "no-store",
+      ...headers,
     })
     .end(JSON.stringify(body));
+}
+
+/**
+ * The challenge that turns a refusal into an instruction.
+ *
+ * A 401 carrying no `WWW-Authenticate` says "rejected" and nothing about how
+ * to fix it. RFC 9110 requires the header on every 401 and RFC 6750 defines
+ * this exact shape for bearer tokens, so a client that probes the endpoint
+ * before connecting learns the scheme instead of giving up. Smithery recorded
+ * 197 sessions and zero tool calls against this server — which is what that
+ * failure looks like from the outside.
+ *
+ * Deliberately NOT advertising `resource_metadata`: that field points at an
+ * OAuth protected-resource document, and this server has no authorization
+ * server to describe. Keys are issued to a human in the console. Pointing an
+ * OAuth-capable client at a discovery document that cannot exist would replace
+ * a silent failure with a confusing one. The static server card already
+ * publishes `authentication: { schemes: ["bearer"] }` alongside every tool.
+ *
+ * `error` and `error_description` distinguish "you sent nothing" from "you
+ * sent something we rejected" — the difference between a config the user has
+ * not filled in and a key that expired.
+ */
+function authChallenge(sent: boolean): Record<string, string> {
+  const error = sent
+    ? `, error="invalid_token", error_description="The API key is unknown or expired. Issue a new one at https://tonnode.io/dashboard"`
+    : `, error_description="Send your API key as: Authorization: Bearer <key>. Get one at https://tonnode.io/dashboard"`;
+  return { "WWW-Authenticate": `Bearer realm="TONNode MCP"${error}` };
 }
 
 class HttpError extends Error {
@@ -351,7 +380,22 @@ export function startHttp(): void {
       }
 
       key = authenticate(req);
-      if (!key) return reply(res, 401, { error: "invalid, missing or expired API key" });
+      if (!key) {
+        // Whether anything was offered at all decides which challenge the
+        // client gets — see authChallenge.
+        const offered = Boolean(req.headers.authorization || req.headers["x-api-key"]);
+        return reply(
+          res,
+          401,
+          {
+            error: "invalid, missing or expired API key",
+            hint: "Send it as: Authorization: Bearer <key>",
+            docs: "https://tonnode.io/en/docs/mcp",
+            get_a_key: "https://tonnode.io/dashboard",
+          },
+          authChallenge(offered)
+        );
+      }
       const rpm = KEYS.get(key)?.rpm ?? RATE_LIMIT_RPM;
       if (!allow(`key:${key}`, rpm)) {
         return reply(res, 429, { error: `rate limit exceeded (${rpm}/min for this key)` });
