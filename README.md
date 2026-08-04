@@ -119,7 +119,7 @@ The server binds `127.0.0.1` by default — put a TLS reverse proxy (Caddy, ngin
 
 The default public-config liteservers are shared, rate-limited and keep **no deep history** — `get_transactions` beyond recent blocks will answer `lt not in db`. Agents also tend to query in bursts, which public gateways throttle.
 
-For guaranteed throughput, archive depth and a node-level mempool stream, point `TON_LITESERVERS` at a private endpoint — [tonnode.io](https://tonnode.io) provisions one in under a minute, payable in TON.
+For guaranteed throughput, archive depth and a node-level mempool stream, point `TON_LITESERVERS` at a [private liteserver](https://tonnode.io/en/nodes) — provisioned in under a minute, payable in TON. How the config file, ADNL keys and archive routing work is covered in the [TON Liteserver guide](https://tonnode.io/en/docs/liteservers).
 
 ## License
 
