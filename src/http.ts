@@ -15,6 +15,7 @@ import { createServer as createHttpServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { readFileSync, watchFile } from "node:fs";
+import { appendFile } from "node:fs/promises";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createTonServer } from "./server.js";
@@ -324,6 +325,85 @@ setInterval(() => {
   }
 }, 60_000).unref();
 
+// ---------- per-call usage log (opt-in: TONNODE_USAGE_LOG=<path>) ----------
+//
+// One JSON line per HTTP request to /mcp, written after the response has
+// finished; the tonnode-admin panel ingests the file. A line carries the
+// registry label and a short hint of the key, never the key itself.
+// Writes are chained (ordered, off the request path) and appendFile reopens
+// the path every time, so the reader may rename or truncate the file at will.
+// Every failure is swallowed: logging must never change a response.
+
+const USAGE_LOG = process.env.TONNODE_USAGE_LOG || undefined;
+let usageChain: Promise<void> = Promise.resolve();
+let usageErrorAt = 0;
+
+function usageError(err: unknown): void {
+  const now = Date.now();
+  if (now - usageErrorAt < 60_000) return; // at most one console line per minute
+  usageErrorAt = now;
+  console.error(
+    `${new Date(now).toISOString()} usage log: ${err instanceof Error ? err.message : String(err)} (muted for 1 min)`
+  );
+}
+
+function clip(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+/** "tn_live_abc…wxyz"; null for anything shorter than 20 chars, where a hint would be most of the key. */
+function keyHint(key: string): string | null {
+  return key.length >= 20 ? `${key.slice(0, 11)}…${key.slice(-4)}` : null;
+}
+
+/** The key the client offered, read from the same headers authenticate() reads. */
+function offeredKey(req: IncomingMessage): string {
+  const apiKeyHeader = req.headers["x-api-key"];
+  const raw = (req.headers.authorization ?? (Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader) ?? "").trim();
+  return raw.replace(/^Bearer\s+/i, "").trim();
+}
+
+/**
+ * Arms the usage line for one /mcp request. `key` is authenticate()'s result
+ * (null = refused). The POST branch puts the parsed body into the returned
+ * holder; the line itself is built and queued only on "finish".
+ */
+function trackUsage(req: IncomingMessage, res: ServerResponse, key: string | null): { body?: unknown } {
+  const call: { body?: unknown } = {};
+  const started = Date.now();
+  const label = key !== null && key !== "open" ? KEYS.get(key)?.label ?? null : null;
+  res.on("finish", () => {
+    try {
+      const body = call.body;
+      const msg = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+      const params =
+        msg?.params && typeof msg.params === "object" ? (msg.params as Record<string, unknown>) : null;
+      const rpc = typeof msg?.method === "string" ? msg.method : null;
+      const sid = req.headers["mcp-session-id"];
+      const ua = req.headers["user-agent"];
+      const line = JSON.stringify({
+        ts: new Date(started).toISOString(),
+        ms: Date.now() - started,
+        http: req.method ?? null,
+        status: res.statusCode,
+        rpc,
+        id: typeof msg?.id === "string" || typeof msg?.id === "number" ? msg.id : null,
+        tool: rpc === "tools/call" && typeof params?.name === "string" ? params.name : null,
+        args: params && params.arguments !== undefined ? clip(JSON.stringify(params.arguments), 400) : null,
+        key_label: label,
+        key_hint: key === "open" ? null : keyHint(key ?? offeredKey(req)),
+        sid: typeof sid === "string" && sid ? sid.slice(0, 8) : null,
+        ip: clientIp(req) || null,
+        ua: typeof ua === "string" && ua ? clip(ua, 120) : null,
+      });
+      usageChain = usageChain.then(() => appendFile(USAGE_LOG!, line + "\n")).catch(usageError);
+    } catch (err) {
+      usageError(err);
+    }
+  });
+  return call;
+}
+
 // ---------- http server ----------
 
 function logLine(req: IncomingMessage, res: ServerResponse, key: string | null, sid?: string) {
@@ -380,6 +460,7 @@ export function startHttp(): void {
       }
 
       key = authenticate(req);
+      const usage = USAGE_LOG ? trackUsage(req, res, key) : null;
       if (!key) {
         // Whether anything was offered at all decides which challenge the
         // client gets — see authChallenge.
@@ -413,6 +494,7 @@ export function startHttp(): void {
 
       if (req.method === "POST") {
         const body = await readBody(req);
+        if (usage) usage.body = body;
         // one token from the rate bucket must buy one message, not a batch of
         // thousands; batching was removed from the MCP spec in 2025-06-18 anyway
         if (Array.isArray(body)) {
