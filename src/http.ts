@@ -330,21 +330,54 @@ setInterval(() => {
 // One JSON line per HTTP request to /mcp, written after the response has
 // finished; the tonnode-admin panel ingests the file. A line carries the
 // registry label and a short hint of the key, never the key itself.
-// Writes are chained (ordered, off the request path) and appendFile reopens
-// the path every time, so the reader may rename or truncate the file at will.
+// One writer appends the queued lines in order, off the request path, and
+// appendFile reopens the path every time, so the reader may rename or
+// truncate the file at will.
 // Every failure is swallowed: logging must never change a response.
 
 const USAGE_LOG = process.env.TONNODE_USAGE_LOG || undefined;
-let usageChain: Promise<void> = Promise.resolve();
+// Lines wait here for the writer. Capped so that a stalled disk or a flood of
+// refused requests costs bounded memory: past the cap new lines are dropped
+// and counted in the console line. The batch being written is not counted.
+const USAGE_MAX_PENDING = 10_000;
+let usagePending: string[] = [];
+let usageWriting = false;
+let usageDropped = 0;
 let usageErrorAt = 0;
 
 function usageError(err: unknown): void {
   const now = Date.now();
   if (now - usageErrorAt < 60_000) return; // at most one console line per minute
   usageErrorAt = now;
+  const dropped = usageDropped > 0 ? `; ${usageDropped} line(s) dropped so far` : "";
   console.error(
-    `${new Date(now).toISOString()} usage log: ${err instanceof Error ? err.message : String(err)} (muted for 1 min)`
+    `${new Date(now).toISOString()} usage log: ${err instanceof Error ? err.message : String(err)}${dropped} (muted for 1 min)`
   );
+}
+
+/** Queues one line. A single writer appends everything queued in one appendFile, in order. */
+function queueUsageLine(line: string): void {
+  if (usagePending.length >= USAGE_MAX_PENDING) {
+    usageDropped++;
+    usageError(new Error(`queue full (${USAGE_MAX_PENDING} lines waiting for the disk)`));
+    return;
+  }
+  usagePending.push(line);
+  if (!usageWriting) void writeUsageLines();
+}
+
+async function writeUsageLines(): Promise<void> {
+  usageWriting = true;
+  while (usagePending.length > 0) {
+    const batch = usagePending;
+    usagePending = [];
+    try {
+      await appendFile(USAGE_LOG!, batch.join(""));
+    } catch (err) {
+      usageError(err);
+    }
+  }
+  usageWriting = false;
 }
 
 function clip(s: string, max: number): string {
@@ -417,7 +450,7 @@ function armUsageLine(req: IncomingMessage, res: ServerResponse, key: string | n
         ip,
         ua,
       });
-      usageChain = usageChain.then(() => appendFile(USAGE_LOG!, line + "\n")).catch(usageError);
+      queueUsageLine(line + "\n");
     } catch (err) {
       usageError(err);
     }
