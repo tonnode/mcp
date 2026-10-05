@@ -3,6 +3,7 @@
 // finished and only a real response gets there.
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
@@ -137,6 +138,58 @@ test("arguments are cut to 400 characters and the user agent to 120", async () =
   assert.equal(l.args.length, 400);
   assert.ok(l.args.startsWith('{"address":"xxx'));
   assert.equal(l.ua.length, 120);
+});
+
+test("every string the client controls is clipped, so a near-1 MB request writes a short line", async () => {
+  const sid = await openSession(KEY);
+  const from = lines().length;
+  const big = (c) => c.repeat(300_000);
+  // No session: the body is read and then refused with a 400.
+  const refused = await post({ jsonrpc: "2.0", id: big("i"), method: big("m") }, { Authorization: `Bearer ${KEY}` });
+  assert.equal(refused.res.status, 400);
+  // In a session: a tools/call with a huge tool name, behind a huge X-Forwarded-For.
+  await post(
+    { jsonrpc: "2.0", id: big("j"), method: "tools/call", params: { name: big("t"), arguments: {} } },
+    { Authorization: `Bearer ${KEY}`, "mcp-session-id": sid, "X-Forwarded-For": "9".repeat(8000) }
+  );
+
+  const got = await newLines(from, 2);
+  assert.equal(got.length, 2);
+  for (const raw of readFileSync(logFile, "utf8").split("\n").filter(Boolean).slice(from)) {
+    assert.ok(Buffer.byteLength(raw) < 2048, `a ${Buffer.byteLength(raw)}-byte line was written`);
+  }
+  assert.equal(got[0].status, 400);
+  assert.equal(got[0].rpc.length, 100);
+  assert.ok(got[0].rpc.startsWith("mmm"));
+  assert.equal(got[0].id.length, 100);
+  assert.equal(got[1].rpc, "tools/call");
+  assert.equal(got[1].tool.length, 100);
+  assert.ok(got[1].tool.startsWith("ttt"));
+  assert.equal(got[1].id.length, 100);
+  assert.equal(got[1].ip.length, 64);
+});
+
+test("a 413 with no X-Forwarded-For is logged with the socket address", async () => {
+  // Node detaches the socket before "finish" on this path, so the address
+  // must have been read when the request arrived.
+  const from = lines().length;
+  await new Promise((resolve) => {
+    const req = request(
+      { host: "127.0.0.1", port: PORT, path: "/mcp", method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${KEY}` } },
+      (res) => {
+        res.resume();
+        res.on("end", resolve);
+      }
+    );
+    req.on("error", resolve); // the server may close before the client has sent everything
+    req.end("x".repeat(1_100_000));
+  });
+  const [l] = await newLines(from, 1);
+  assert.ok(l, "no line was written for the 413");
+  assert.equal(l.status, 413);
+  assert.equal(l.ip, "127.0.0.1");
+  assert.equal(l.key_label, "customer-1");
+  assert.equal(l.rpc, null);
 });
 
 test("refused requests are logged: 401 with a hint of what was offered, 429 with the label", async () => {

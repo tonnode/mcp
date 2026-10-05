@@ -367,41 +367,61 @@ function offeredKey(req: IncomingMessage): string {
  * Arms the usage line for one /mcp request. `key` is authenticate()'s result
  * (null = refused). The POST branch puts the parsed body into the returned
  * holder; the line itself is built and queued only on "finish".
+ *
+ * Everything read from `req` is read here, not on "finish": by then Node may
+ * have detached the socket (e.g. after a 413), and clientIp() would throw.
+ * Every string the client controls is clipped, so one request cannot write
+ * a line of up to the 1 MB body limit.
  */
 function trackUsage(req: IncomingMessage, res: ServerResponse, key: string | null): { body?: unknown } {
   const call: { body?: unknown } = {};
+  try {
+    armUsageLine(req, res, key, call);
+  } catch (err) {
+    usageError(err);
+  }
+  return call;
+}
+
+function armUsageLine(req: IncomingMessage, res: ServerResponse, key: string | null, call: { body?: unknown }): void {
   const started = Date.now();
   const label = key !== null && key !== "open" ? KEYS.get(key)?.label ?? null : null;
+  const http = req.method ?? null;
+  const hint = key === "open" ? null : keyHint(key ?? offeredKey(req));
+  const sidHeader = req.headers["mcp-session-id"];
+  const sid = typeof sidHeader === "string" && sidHeader ? sidHeader.slice(0, 8) : null;
+  const ipRaw = clientIp(req);
+  const ip = ipRaw ? clip(ipRaw, 64) : null;
+  const uaHeader = req.headers["user-agent"];
+  const ua = typeof uaHeader === "string" && uaHeader ? clip(uaHeader, 120) : null;
   res.on("finish", () => {
     try {
       const body = call.body;
       const msg = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
       const params =
         msg?.params && typeof msg.params === "object" ? (msg.params as Record<string, unknown>) : null;
-      const rpc = typeof msg?.method === "string" ? msg.method : null;
-      const sid = req.headers["mcp-session-id"];
-      const ua = req.headers["user-agent"];
+      const rpc = typeof msg?.method === "string" ? clip(msg.method, 100) : null;
+      const id = typeof msg?.id === "string" ? clip(msg.id, 100) : typeof msg?.id === "number" ? msg.id : null;
       const line = JSON.stringify({
         ts: new Date(started).toISOString(),
         ms: Date.now() - started,
-        http: req.method ?? null,
+        http,
         status: res.statusCode,
         rpc,
-        id: typeof msg?.id === "string" || typeof msg?.id === "number" ? msg.id : null,
-        tool: rpc === "tools/call" && typeof params?.name === "string" ? params.name : null,
+        id,
+        tool: rpc === "tools/call" && typeof params?.name === "string" ? clip(params.name, 100) : null,
         args: params && params.arguments !== undefined ? clip(JSON.stringify(params.arguments), 400) : null,
         key_label: label,
-        key_hint: key === "open" ? null : keyHint(key ?? offeredKey(req)),
-        sid: typeof sid === "string" && sid ? sid.slice(0, 8) : null,
-        ip: clientIp(req) || null,
-        ua: typeof ua === "string" && ua ? clip(ua, 120) : null,
+        key_hint: hint,
+        sid,
+        ip,
+        ua,
       });
       usageChain = usageChain.then(() => appendFile(USAGE_LOG!, line + "\n")).catch(usageError);
     } catch (err) {
       usageError(err);
     }
   });
-  return call;
 }
 
 // ---------- http server ----------
