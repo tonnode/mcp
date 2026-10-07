@@ -2,7 +2,7 @@
 
 Ready-to-copy configs for every major MCP client, plus programmatic usage from Node.js.
 
-Русская версия документации: [README.ru.md](../README.ru.md)
+Русская версия документации: [README.ru.md](../docs/README.ru.md)
 
 ## Client configs
 

@@ -11,7 +11,7 @@
   "files": [
     "dist",
     "README.md",
-    "README.ru.md",
+    "docs/README.ru.md",
     "LICENSE"
   ],
   "scripts": {
